@@ -2,6 +2,7 @@ package com.vex.gameengine
 
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.net.Uri
 import android.os.Bundle
 import android.webkit.RenderProcessGoneDetail
@@ -135,6 +136,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+            WebView.setWebContentsDebuggingEnabled(true)
+        }
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(primary = Color(0xFFA98AF8))) {
                 Box(

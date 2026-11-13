@@ -14,7 +14,10 @@ for attempt in {1..10}; do
   if adb shell uiautomator dump /sdcard/vex-smoke.xml >/dev/null 2>&1; then
     screen=$(adb shell cat /sdcard/vex-smoke.xml)
     if [[ "$screen" == *"Yeni proje"* && "$screen" == *"Örnek oyunu aç"* ]]; then
-      echo "VEX project gallery opened in Android WebView with Wi-Fi and mobile network disabled."
+      pid=$(adb shell pidof "$package" | tr -d '\r')
+      adb forward tcp:9222 "localabstract:webview_devtools_remote_$pid"
+      trap 'adb forward --remove tcp:9222 >/dev/null 2>&1 || true' EXIT
+      node scripts/android-editor-smoke.mjs
       exit 0
     fi
     if [[ "$screen" == *"Yerel editör açılamadı"* || "$screen" == *"Proje galerisi açılamadı"* ]]; then

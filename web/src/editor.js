@@ -161,7 +161,10 @@ function rebuildStage(restore=true){
       });
     if(saved)stage.restore(saved);
     stage.configure(selected,tool,space,snap);
-  }catch(e){viewport.replaceChildren(muted('3D görünüm açılmadı. WebGL 2 desteğini kontrol edin.'));flash(e.message,true);}
+  }catch(e){
+    viewport.replaceChildren(el('div',{className:'scene-error',role:'alert'},
+      muted('3D sahne açılamadı. '+e.message),button('Sahneyi yeniden aç',()=>rebuildStage(false))));
+  }
 }
 async function play(project,preview){
   const serial=++session;
@@ -184,10 +187,10 @@ function refresh(){
     button('‹ Projeler',run(async()=>{await persist();await gallery();})),
     el('strong',{className:'project-title'},p.name),
     el('span',{'data-save':'',className:'save-state'},prior),
-    button('Geri al',()=>history(undo,redo),{disabled:!undo.length}),
+    el('div',{className:'editor-actions'},button('Geri al',()=>history(undo,redo),{disabled:!undo.length}),
     button('Yinele',()=>history(redo,undo),{disabled:!redo.length}),
     button('Kaydet',run(async()=>{await persist();flash('Proje kaydedildi.');})),
-    button('▶ Test',run(()=>play(p,true)),{className:'primary'}),
+    button('▶ Test',run(()=>play(p,true)),{className:'primary'})),
   );
   toolbar.replaceChildren(
     ...Object.entries({scene:'Sahne',blocks:'Bloklar',assets:'Assetler',settings:'Ayarlar',output:'Dışa aktar'}).map(([key,name])=>
@@ -198,8 +201,8 @@ function refresh(){
     }),
   );
   if(viewport.parentElement.classList.contains('full'))toolbar.lastChild.textContent='Paneli aç';
-  stage?.configure(selected,tool,space,snap);
   renderPanel();
+  stage?.configure(selected,tool,space,snap);
 }
 function vector(title,value,changeValue,min,max){
   return el('fieldset',{className:'vectors'},el('legend',{},title),...['X','Y','Z'].map((axis,index)=>label(axis,
