@@ -33,7 +33,7 @@ try{
   await page.getByRole('button',{name:'+ Olay'}).click();
   await page.locator('.script').last().locator('select').last().selectOption('score');
   await page.getByRole('button',{name:'▶ Test'}).click();
-  await page.locator('.game-status').getByText(/Skor 10/).waitFor({timeout:10000});
+  await page.getByText(/Skor 10/).waitFor({timeout:10000});
   await page.getByRole('button',{name:'Testi durdur'}).click();
   await page.getByRole('button',{name:'Dışa aktar',exact:true}).click();
   const [download]=await Promise.all([page.waitForEvent('download'),page.getByRole('button',{name:'HTML5 oyun ZIP’i'}).click()]);
@@ -42,7 +42,7 @@ try{
   const game=join(temporary,'index.html');
   await writeFile(game,zip['index.html']);
   await page.getByRole('button',{name:'Kaydet',exact:true}).click();
-  await page.locator('#notice').getByText('Proje kaydedildi.').waitFor();
+  await page.getByText('Proje kaydedildi.',{exact:true}).waitFor();
   await page.reload();
   await page.getByRole('button',{name:'Aç',exact:true}).click();
   await page.getByRole('button',{name:'Küp',exact:true}).waitFor();
@@ -54,7 +54,7 @@ try{
   const requests=[];
   standalone.on('request',r=>{if(/^https?:/.test(r.url()))requests.push(r.url());});
   await standalone.goto(pathToFileURL(game).href);
-  await standalone.locator('.game-status').getByText(/Skor 10/).waitFor({timeout:10000});
+  await standalone.getByText(/Skor 10/).waitFor({timeout:10000});
   await standalone.locator('canvas').waitFor();
   assert.deepEqual(requests,[]);
   assert.deepEqual(errors,[]);

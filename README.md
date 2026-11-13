@@ -19,7 +19,7 @@ APK dosyası `app/build/outputs/apk/debug/app-debug.apk` yolunda oluşur. GitHub
 
 1. Projeler ekranından bir şablon veya boş proje seçin.
 2. Sahne sekmesinden obje ekleyin. Obje seçip taşıma, döndürme veya ölçekleme aracını açın.
-3. Bloklar sekmesinde olay ekleyin, eylemleri sıralayın ve girişlerini doldurun. Telefonda sıralama düğmeleri, masaüstünde sürükle bırak kullanılabilir.
+3. Bloklar sekmesinde olay ekleyin, eylemleri sıralayın ve girişlerini doldurun. Blokları tutamaçtan sürükleyerek veya ok düğmeleriyle sıralayın.
 4. Test ile oyunu çalıştırın. Bilgisayarda WASD, Space ve E, telefonda joystick ve tanımlanan butonlar kullanılır.
 5. Dışa Aktar sekmesinden proje ZIP’i veya HTML5 oyun ZIP’i alın. Oyunu yerel galeriye de yayınlayabilirsiniz.
 

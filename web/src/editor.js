@@ -9,6 +9,7 @@ import * as disk from './storage.js';
 import {el,button} from './dom.js';
 
 const root=document.querySelector('#app'), notice=document.querySelector('#notice');
+let renderedGallery=0;
 let p=null, levelId=null, selected=null, activePanel='scene', tool='select', space='world', snap=false;
 let undo=[],redo=[], saveTimer, saveQueue=Promise.resolve(), saveVersion=0;
 let stage=null,stopGame=null, viewport=null,panel=null,toolbar=null,header=null,metrics=null, statsTimer=null;
@@ -121,7 +122,7 @@ function openEditor(q){
   statsTimer=setInterval(()=>{
     if(!stage)return;
     const m=stage.metrics();
-    metrics.textContent=m.objects+' obje · '+m.calls+' çizim · '+m.triangles+' üçgen';
+    metrics.textContent=m.fps+' FPS · '+m.objects+' obje · '+m.calls+' çizim · '+m.triangles+' üçgen';
   },850);
 }
 function rebuildStage(restore=true){
@@ -279,7 +280,36 @@ function renderBlocks(){
       const reorder=destination=>change(()=>{
         script.steps.splice(index,1);script.steps.splice(destination,0,block);
       },false);
-      const blockNode=el('div',{className:'block',draggable:'true',
+      let drag=null;
+      const handle=button('↕',()=>{},{
+        className:'drag-handle','aria-label':'Bloğu sürükleyerek taşı',
+        onpointerdown:e=>{
+          if(e.pointerType==='mouse')return;
+          e.preventDefault();
+          drag={pointer:e.pointerId,y:e.clientY,index};
+          e.currentTarget.setPointerCapture(e.pointerId);
+        },
+        onpointermove:e=>{
+          if(e.pointerId!==drag?.pointer)return;
+          const target=document.elementFromPoint(e.clientX,e.clientY)?.closest('.block');
+          if(target?.parentElement!==card)return;
+          drag.index=Number(target.dataset.index);
+          card.querySelector('.drop-block')?.classList.remove('drop-block');
+          target.classList.add('drop-block');
+        },
+        onpointerup:e=>{
+          if(e.pointerId!==drag?.pointer)return;
+          const destination=drag.index, moved=Math.abs(e.clientY-drag.y)>8;
+          drag=null;
+          card.querySelector('.drop-block')?.classList.remove('drop-block');
+          if(moved&&destination!==index)reorder(destination);
+        },
+        onlostpointercapture:()=>{
+          drag=null;
+          card.querySelector('.drop-block')?.classList.remove('drop-block');
+        },
+      });
+      const blockNode=el('div',{className:'block',draggable:'true','data-index':index,
         ondragstart:e=>e.dataTransfer.setData('text/plain',script.id+':'+index),
         ondragover:e=>e.preventDefault(),
         ondrop:e=>{
@@ -287,7 +317,7 @@ function renderBlocks(){
           const from=Number(n);
           if(source!==script.id||!Number.isInteger(from)||from===index||!script.steps[from])return;
           change(()=>{const [moved]=script.steps.splice(from,1);script.steps.splice(index,0,moved);},false);
-        }},el('strong',{},name),row(
+        }},el('div',{className:'block-heading'},el('strong',{},name),handle),row(
           button('↑',()=>reorder(index-1),{disabled:index===0,'aria-label':'Bloğu yukarı taşı'}),
           button('↓',()=>reorder(index+1),{disabled:index===script.steps.length-1,'aria-label':'Bloğu aşağı taşı'}),
           button('Kopyala',()=>change(()=>script.steps.splice(index+1,0,clone(block)),false)),
@@ -371,8 +401,10 @@ function renderPanel(){
 }
 async function gallery(){
   teardown();p=null;header=null;
+  const galleryId=++renderedGallery;
   const games=galleryMode==='games';
   const items=await (games?disk.published():disk.projects());
+  if(galleryId!==renderedGallery)return;
   const nav=el('nav',{className:'gallery-nav'},el('strong',{},'VEX'),
     button('Projeler',run(()=>{galleryMode='projects';return gallery();}),{'aria-pressed':String(!games)}),
     button('Yerel oyunlar',run(()=>{galleryMode='games';return gallery();}),{'aria-pressed':String(games)}));

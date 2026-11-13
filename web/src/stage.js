@@ -108,7 +108,17 @@ export class Stage {
         if(entry.disposed){disposeRoot(gltf.scene);return;}
         root.remove(mesh);
         disposeRoot(mesh);
-        gltf.scene.traverse(n=>{if(n.isMesh) n.castShadow=n.receiveShadow=true;});
+        gltf.scene.traverse(n=>{
+          if(!n.isMesh)return;
+          n.castShadow=n.receiveShadow=true;
+          for(const surface of [n.material].flat()){
+            if(o.color!=='#a481ff')surface.color?.set(o.color);
+            if(o.emissive!=='#000000')surface.emissive?.set(o.emissive);
+            if(o.metalness!==0&&'metalness' in surface)surface.metalness=o.metalness;
+            if(o.roughness!==.65&&'roughness' in surface)surface.roughness=o.roughness;
+            if(o.opacity<1){surface.transparent=true;surface.opacity*=o.opacity;}
+          }
+        });
         root.add(gltf.scene);
         entry.clips=gltf.animations;
         entry.mixer=new T.AnimationMixer(gltf.scene);

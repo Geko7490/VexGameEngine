@@ -34,6 +34,7 @@ export class Physics {
     }else shape=RAPIER.ColliderDesc.cuboid(x*.5,y*.5,z*.5);
     shape.setFriction(o.friction).setRestitution(o.restitution).setMass(o.mass)
       .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS).setSensor(o.body==='sensor');
+    if(o.body==='sensor')shape.setActiveCollisionTypes(RAPIER.ActiveCollisionTypes.DEFAULT|RAPIER.ActiveCollisionTypes.KINEMATIC_FIXED);
     const collider=this.world.createCollider(shape,body);
     const entry={body,collider,o};
     if(player && o.body==='kinematic'){

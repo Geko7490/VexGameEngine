@@ -46,8 +46,13 @@ export function editorStage(host,project,scene,onSelect,onTransform){
     while(root&&!root.userData.object)root=root.parent;
     onSelect(root?.userData.object??null);
   });
-  function loop(){
+  let fps=0, frames=0, sampled=performance.now();
+  function loop(now){
     handle=requestAnimationFrame(loop);
+    if(now!==undefined){
+      frames++;
+      if(now-sampled>=750){fps=Math.round(frames*1000/(now-sampled));sampled=now;frames=0;}
+    }
     orbit.update();
     stage.render();
   }
@@ -71,7 +76,7 @@ export function editorStage(host,project,scene,onSelect,onTransform){
     },
     camera(){return {position:camera.position.clone(),target:orbit.target.clone()};},
     restore(saved){camera.position.copy(saved.position);orbit.target.copy(saved.target);orbit.update();},
-    metrics(){const info=renderer.info.render;return {calls:info.calls,triangles:info.triangles,objects:entries.size};},
+    metrics(){const info=renderer.info.render;return {calls:info.calls,triangles:info.triangles,objects:entries.size,fps};},
     dispose(){cancelAnimationFrame(handle);lifecycle.abort();orbit.dispose();gizmo.dispose();world.remove(gizmo.getHelper());stage.dispose();},
   };
 }

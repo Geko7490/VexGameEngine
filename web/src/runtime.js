@@ -60,7 +60,7 @@ export async function startGame(host,source,{preview=false,storage}={}){
     for(const clip of audio){clip.pause();clip.removeAttribute('src');clip.load();}
     audio.clear();
     input?.stop();canvasEvents?.abort();physics?.dispose();stage?.dispose();
-    status.remove();message.remove();
+    status.remove();message.remove();input=null;canvasEvents=null;physics=null;stage=null;
   }
   function save(){
     if(preview) return;
@@ -218,6 +218,14 @@ export async function startGame(host,source,{preview=false,storage}={}){
   }
   function tick(now){
     frame=requestAnimationFrame(tick);
+    try{advance(now);}
+    catch(error){
+      cancelAnimationFrame(frame);
+      stopScene();
+      host.replaceChildren(el('p',{},'Oyun durdu. '+error.message));
+    }
+  }
+  function advance(now){
     const dt=Math.min(.1,(now-(lastTime??now))/1000);
     lastTime=now;
     if(pending){activate(pending);accumulator=0;}
