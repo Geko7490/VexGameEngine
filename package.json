@@ -1,0 +1,1 @@
+{"name":"vex-game-engine","version":"0.1.0","private":true,"type":"module","scripts":{"build":"node scripts/build.mjs","test":"node --test web/test/*.test.mjs","smoke":"node web/test/browser.mjs"},"dependencies":{"@dimforge/rapier3d-compat":"0.17.3","fflate":"0.8.2","three":"0.170.0"},"devDependencies":{"esbuild":"0.24.2","playwright":"1.51.1"}}
