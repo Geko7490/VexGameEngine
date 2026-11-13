@@ -4,6 +4,8 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.webkit.RenderProcessGoneDetail
+import android.webkit.WebResourceError
 import android.util.Base64
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -14,16 +16,25 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.lifecycleScope
 import androidx.webkit.JavaScriptReplyProxy
@@ -43,6 +54,9 @@ class MainActivity : ComponentActivity() {
     private data class Export(val name: String, val base64: String)
 
     private var web: WebView? = null
+    private val startupError = mutableStateOf<String?>(null)
+    private val webGeneration = mutableStateOf(0)
+
     private var importReply: JavaScriptReplyProxy? = null
     private val selectedFiles = ConcurrentHashMap<String, ByteArray>()
     private var pendingExport: Export? = null
@@ -127,10 +141,31 @@ class MainActivity : ComponentActivity() {
                     Modifier.fillMaxSize().background(Color(0xFF10111B))
                         .windowInsetsPadding(WindowInsets.safeDrawing).imePadding()
                 ) {
-                    AndroidView(
-                        factory = { createWebView().also { web = it } },
-                        modifier = Modifier.fillMaxSize()
-                    )
+                    val error = startupError.value
+                    if (error == null) {
+                        key(webGeneration.value) {
+                            AndroidView(
+                                factory = { createWebView().also { web = it } },
+                                modifier = Modifier.fillMaxSize(),
+                                onRelease = { view ->
+                                    if (web === view) web = null
+                                    view.destroy()
+                                }
+                            )
+                        }
+                    } else {
+                        Column(
+                            Modifier.align(Alignment.Center).padding(24.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text("VEX Game Engine", style = MaterialTheme.typography.headlineSmall)
+                            Text(error)
+                            Button(onClick = {
+                                webGeneration.value++
+                                startupError.value = null
+                            }) { Text("Yeniden dene") }
+                        }
+                    }
                 }
             }
         }
@@ -145,6 +180,8 @@ class MainActivity : ComponentActivity() {
             setBackgroundColor(android.graphics.Color.rgb(16, 17, 27))
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
+            // Chromium checks this flag before dispatching local HTTPS requests to our interceptor.
+            settings.blockNetworkLoads = false
             settings.allowFileAccess = false
             settings.allowContentAccess = false
             settings.javaScriptCanOpenWindowsAutomatically = false
@@ -153,6 +190,17 @@ class MainActivity : ComponentActivity() {
             webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
                     !request.isForMainFrame || request.url.toString() != ENTRY
+
+                override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                    if (request.isForMainFrame || request.url.toString() == "$ORIGIN/assets/editor.js") {
+                        startupError.value = "Yerel editör açılamadı (WebView hata kodu ${error.errorCode})."
+                    }
+                }
+
+                override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                    startupError.value = "Android System WebView durdu. Tekrar deneyin."
+                    return true
+                }
 
                 override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
                     val uri = request.url
@@ -166,7 +214,11 @@ class MainActivity : ComponentActivity() {
                             mapOf("Cache-Control" to "no-store"), ByteArrayInputStream(bytes)
                         )
                     }
-                    return assets.shouldInterceptRequest(uri) ?: WebResourceResponse(
+                    return assets.shouldInterceptRequest(uri)?.apply {
+                        if (path == "/assets/editor.js") mimeType = "text/javascript"
+                        if (path == "/assets/editor.css") mimeType = "text/css"
+                        encoding = "UTF-8"
+                    } ?: WebResourceResponse(
                         "text/plain", "UTF-8", 403, "Blocked", emptyMap(), ByteArrayInputStream(byteArrayOf())
                     )
                 }
@@ -236,11 +288,6 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         importReply = null
         selectedFiles.clear()
-        web?.let {
-            (it.parent as? android.view.ViewGroup)?.removeView(it)
-            it.destroy()
-        }
-        web = null
         super.onDestroy()
     }
 

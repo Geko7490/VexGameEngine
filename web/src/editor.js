@@ -437,7 +437,14 @@ async function gallery(){
     controls.append(select,button('Yeni proje',run(async()=>{
       const name=await nameDialog('Yeni proje','Proje oluştur');
       if(name){const q=createTemplate(name.slice(0,80),select.value);await disk.save(q);openEditor(q);}
-    }),{className:'primary'}),button('ZIP içe aktar',()=>filePick('.zip',async file=>{
+    }),{className:'primary'}),button('Örnek oyunu aç',run(async()=>{
+      const sample=items.find(q=>q.id==='vex-platform-sample');
+      if(sample){openEditor(sample);return;}
+      const q=createTemplate('Örnek · 3D Platform','platform');
+      q.id='vex-platform-sample';
+      await disk.save(q);
+      openEditor(q);
+    })),button('ZIP içe aktar',()=>filePick('.zip',async file=>{
       if(file.size>maxBytes+1024)throw new Error('Proje ZIP dosyası çok büyük.');
       const q=importArchive(new Uint8Array(await file.arrayBuffer()));q.id=id();await disk.save(q);openEditor(q);
     })));
@@ -461,4 +468,8 @@ async function gallery(){
   root.replaceChildren(el('div',{className:'gallery'},nav,el('div',{className:'gallery-body'},el('h1',{},games?'Yerel oyunlar':'VEX Game Engine'),controls,grid)));
 }
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&p)run(persist)();});
-run(gallery)();
+gallery().catch(error=>{
+  root.replaceChildren(el('section',{className:'boot-screen'},
+    el('h1',{},'VEX Game Engine'),el('p',{},'Proje galerisi açılamadı. '+error.message),
+    button('Yeniden dene',()=>location.reload())));
+});
