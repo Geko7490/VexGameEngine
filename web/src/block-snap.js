@@ -27,13 +27,18 @@ export function snapBlock(root,neighbors,distance=.25){
     for(const axis of axes){
       if(!axes.every(k=>k===axis || Math.min(box.max[k],other.max[k])-Math.max(box.min[k],other.min[k])>1e-5))continue;
       for(const offset of [other.min[axis]-box.max[axis],other.max[axis]-box.min[axis]]){
-        if(Math.abs(offset)<=distance&&(!best||Math.abs(offset)<Math.abs(best.offset)))best={axis,offset};
+        if(Math.abs(offset)<=distance&&(!best||Math.abs(offset)<Math.abs(best.offset)))best={axis,offset,other};
       }
     }
   }
   if(!best)return false;
   const world=root.getWorldPosition(new Vector3());
   world[best.axis]+=best.offset;
+  for(const axis of axes.filter(axis=>axis!==best.axis)){
+    const options=[best.other.min[axis]-box.min[axis],best.other.max[axis]-box.max[axis]];
+    const offset=options.reduce((a,b)=>Math.abs(a)<Math.abs(b)?a:b);
+    if(Math.abs(offset)<=distance)world[axis]+=offset;
+  }
   root.position.copy(root.parent?root.parent.worldToLocal(world):world);
   return true;
 }

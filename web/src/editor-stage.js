@@ -1,10 +1,10 @@
-import {Plane,Raycaster,Vector2,Vector3} from 'three';
+import {BoxGeometry,Mesh,MeshBasicMaterial,Matrix3,Plane,Raycaster,Vector2,Vector3} from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {TransformControls} from 'three/addons/controls/TransformControls.js';
 import {snapBlock} from './block-snap.js';
 import {Stage} from './stage.js';
 
-export function editorStage(host,project,scene,onSelect,onTransform){
+export function editorStage(host,project,scene,onSelect,onTransform,onBuild,onGroupMove){
   const stage=new Stage(host,project,scene,{editor:true,assetError:name=>onTransform(null,name)});
   const {camera,world,renderer,entries}=stage, canvas=renderer.domElement;
   const orbit=new OrbitControls(camera,canvas);
@@ -16,6 +16,10 @@ export function editorStage(host,project,scene,onSelect,onTransform){
   world.add(gizmo.getHelper());
   let manipulated=false, pointer=null, handle=null;
   gizmo.addEventListener('dragging-changed',e=>{orbit.enabled=!e.value;if(e.value)manipulated=true;});
+  const ghost=new Mesh(new BoxGeometry(),new MeshBasicMaterial({color:0x7bffcd,transparent:true,opacity:.36,depthWrite:false}));
+  ghost.visible=false; world.add(ghost);
+  const floor=new Plane(new Vector3(0,1,0),0);
+  let held=null,marked=[];
   let mode='select', grid=false, magnet=true, direct=null;
   function commit(root){
     if(!root)return;
@@ -38,11 +42,21 @@ export function editorStage(host,project,scene,onSelect,onTransform){
     pointer={x:e.clientX,y:e.clientY,id:e.pointerId};
     manipulated=!!gizmo.dragging;
   });
-  on('pointercancel',()=>{pointer=null;});
+  on('pointercancel',()=>{pointer=null;ghost.visible=false;});
+  on('pointerleave',()=>{ghost.visible=false;});
+  on('pointermove',e=>{
+    if(['build','finish'].includes(mode)&&(!pointer||Math.hypot(e.clientX-pointer.x,e.clientY-pointer.y)<=8))preview(e);
+    else ghost.visible=false;
+  });
   on('pointerup',e=>{
     const start=pointer;pointer=null;
     if(!start||start.id!==e.pointerId||manipulated||Math.hypot(e.clientX-start.x,e.clientY-start.y)>8)return;
-    onSelect(pick(e)?.userData.object??null);
+    if(['build','finish'].includes(mode)){
+      const position=preview(e);
+      if(position)onBuild(position.toArray(),mode);
+      return;
+    }
+    onSelect(pick(e)?.userData.object??null,mode==='multi');
   });
   function rayAt(e){
     const rect=canvas.getBoundingClientRect();
@@ -56,6 +70,20 @@ export function editorStage(host,project,scene,onSelect,onTransform){
     while(root&&!root.userData.object)root=root.parent;
     return root;
   }
+  function preview(e){
+    rayAt(e);
+    const roots=Array.from(entries.values()).filter(entry=>!entry.o.parent).map(entry=>entry.root);
+    const hit=ray.intersectObjects(roots,true).find(h=>h.object.isMesh&&h.face);
+    const point=hit?.point.clone()??ray.ray.intersectPlane(floor,new Vector3());
+    if(!point){ghost.visible=false;return null;}
+    const normal=hit?hit.face.normal.clone().applyMatrix3(new Matrix3().getNormalMatrix(hit.object.matrixWorld)).normalize():new Vector3(0,1,0);
+    for(const axis of ['x','y','z']){
+      if(Math.abs(normal[axis])<1e-5)point[axis]=Math.round(point[axis]*4)/4;
+    }
+    point.addScaledVector(normal,.5*(Math.abs(normal.x)+Math.abs(normal.y)+Math.abs(normal.z)));
+    ghost.position.copy(point);ghost.visible=true;
+    return point;
+  }
   function applyMagnet(root){
     if(!magnet||entries.get(root.userData.object)?.o.kind!=='box')return;
     const related=(a,b)=>{for(let item=a;item;item=item.parent)if(item===b)return true;return false;};
@@ -66,7 +94,17 @@ export function editorStage(host,project,scene,onSelect,onTransform){
   function capture(name,fn){canvas.addEventListener(name,fn,{capture:true,signal:lifecycle.signal});}
   capture('pointerdown',e=>{
     if(direct){e.stopImmediatePropagation();return;}
-    if(mode!=='drag'||!e.isPrimary||e.button!==0)return;
+    if(!e.isPrimary||e.button!==0)return;
+    if(['build','finish'].includes(mode))preview(e);
+    if(mode!=='drag'){
+      if(mode!=='select'||e.pointerType!=='touch')return;
+      const root=pick(e);
+      if(root)held={id:e.pointerId,x:e.clientX,y:e.clientY,timer:setTimeout(()=>{
+        held=null;pointer=null;manipulated=true;
+        onSelect(root.userData.object,true);
+      },490)};
+      return;
+    }
     const root=pick(e);
     if(!root)return;
     const origin=root.getWorldPosition(new Vector3());
@@ -79,10 +117,16 @@ export function editorStage(host,project,scene,onSelect,onTransform){
     e.stopImmediatePropagation();
     orbit.enabled=false;
     canvas.setPointerCapture(e.pointerId);
-    direct={root,origin,original:root.position.clone(),plane,hit,id:e.pointerId,x:e.clientX,y:e.clientY,moved:false};
-    onSelect(root.userData.object);
+    direct={root,origin,plane,hit,id:e.pointerId,x:e.clientX,y:e.clientY,moved:false};
+    const group=marked.includes(root.userData.object)?marked:[root.userData.object];
+    direct.members=group.map(id=>entries.get(id)?.root).filter(Boolean).filter(member=>{
+      for(let ancestor=member.parent;ancestor;ancestor=ancestor.parent)if(group.includes(ancestor.userData.object))return false;
+      return true;
+    }).map(member=>({root:member,local:member.position.clone(),world:member.getWorldPosition(new Vector3())}));
+    if(group.length===1)onSelect(root.userData.object);
   });
   capture('pointermove',e=>{
+    if(held?.id===e.pointerId&&Math.hypot(e.clientX-held.x,e.clientY-held.y)>8){clearTimeout(held.timer);held=null;}
     if(!direct||direct.id!==e.pointerId)return;
     e.stopImmediatePropagation();
     if(!direct.moved&&Math.hypot(e.clientX-direct.x,e.clientY-direct.y)<5)return;
@@ -97,17 +141,19 @@ export function editorStage(host,project,scene,onSelect,onTransform){
       if(direct.plane.normal.y!==1)position.y=Math.round(position.y*4)/4;
     }
     const root=direct.root;
-    root.position.copy(root.parent.worldToLocal(position));
-    applyMagnet(root);
+    const delta=position.sub(direct.origin);
+    for(const member of direct.members)member.root.position.copy(member.root.parent.worldToLocal(member.world.clone().add(delta)));
+    if(direct.members.length===1)applyMagnet(root);
   });
   function endDrag(e,cancel){
+    if(held?.id===e.pointerId){clearTimeout(held.timer);held=null;}
     if(!direct||direct.id!==e.pointerId)return;
     e.stopImmediatePropagation();
-    const {root,original,moved}=direct;
+    const {members,moved}=direct;
     direct=null;
     orbit.enabled=true;
-    if(cancel)root.position.copy(original);
-    else if(moved)commit(root);
+    if(cancel)for(const m of members)m.root.position.copy(m.local);
+    else if(moved)onGroupMove(members.map(m=>[m.root.userData.object,m.root.position.toArray()]));
   }
   capture('pointerup',e=>endDrag(e,false));
   capture('pointercancel',e=>endDrag(e,true));
@@ -124,7 +170,9 @@ export function editorStage(host,project,scene,onSelect,onTransform){
   }
   loop();
   return {
-    configure(id,tool,space,snap,faces){
+    configure(id,tool,space,snap,faces,selection){
+      if(mode!==tool)ghost.visible=false;
+      marked=selection;
       mode=tool;grid=snap;magnet=faces;
       const root=entries.get(id)?.root;
       if(root&&['translate','rotate','scale'].includes(tool))gizmo.attach(root);else gizmo.detach();
@@ -144,6 +192,6 @@ export function editorStage(host,project,scene,onSelect,onTransform){
     camera(){return {position:camera.position.clone(),target:orbit.target.clone()};},
     restore(saved){camera.position.copy(saved.position);orbit.target.copy(saved.target);orbit.update();},
     metrics(){const info=renderer.info.render;return {calls:info.calls,triangles:info.triangles,objects:entries.size,fps};},
-    dispose(){cancelAnimationFrame(handle);lifecycle.abort();orbit.dispose();gizmo.dispose();world.remove(gizmo.getHelper());stage.dispose();},
+    dispose(){clearTimeout(held?.timer);cancelAnimationFrame(handle);lifecycle.abort();orbit.dispose();gizmo.dispose();world.remove(gizmo.getHelper());stage.dispose();},
   };
 }

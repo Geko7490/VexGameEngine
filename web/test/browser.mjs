@@ -29,6 +29,13 @@ try{
   await page.getByRole('button',{name:'Onayla'}).click();
   await page.locator('.viewport canvas').waitFor();
   await page.getByRole('button',{name:'+ Küp',exact:true}).click();
+  await page.getByRole('button',{name:'İnşa',exact:true}).click();
+  const canvas=page.locator('.viewport canvas');
+  const area=await canvas.boundingBox();
+  await canvas.click({position:{x:area.width*.82,y:area.height*.62}});
+  await page.getByRole('button',{name:'İnşa bloğu',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Geri al',exact:true}).click();
+  await page.getByRole('button',{name:'İnşa bloğu',exact:true}).waitFor({state:'detached'});
   await page.getByRole('button',{name:'Bloklar',exact:true}).click();
   await page.getByRole('button',{name:'+ Olay'}).click();
   await page.locator('.script').last().locator('select').last().selectOption('score');

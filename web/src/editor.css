@@ -4,3 +4,6 @@ html,body,#app{height:100%;margin:0}body{--panel:#191a29;--surface:#222337;--lin
 .boot-screen{padding:clamp(22px,6vw,56px)}.boot-screen p{color:var(--muted)}
 
 .studio .work-area.full{grid-template-rows:minmax(0,1fr)}.scene-error{position:absolute;inset:0;display:grid;place-content:center;padding:16px;text-align:center}.scene-error button{justify-self:center}
+
+.scene-actions{position:absolute;z-index:2;inset:auto 6px 6px;display:flex;align-items:center;gap:5px;overflow-x:auto;overscroll-behavior:contain;scrollbar-width:thin;padding:4px;background:#151529db;border-radius:9px}
+.scene-actions button,.scene-actions span{flex-shrink:0;white-space:nowrap}.scene-actions button{min-height:36px;padding:4px 9px}.scene-actions span{padding:0 4px;color:var(--muted)}

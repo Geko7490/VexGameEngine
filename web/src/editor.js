@@ -10,6 +10,7 @@ import {el,button} from './dom.js';
 
 const root=document.querySelector('#app'), notice=document.querySelector('#notice');
 let renderedGallery=0;
+let marked=new Set(), sceneActions;
 let p=null, levelId=null, selected=null, activePanel='scene', tool='select', space='world', snap=false, magnet=true;
 let undo=[],redo=[], saveTimer, saveQueue=Promise.resolve(), saveVersion=0;
 let stage=null,stopGame=null, viewport=null,panel=null,toolbar=null,header=null,metrics=null, statsTimer=null;
@@ -109,6 +110,7 @@ function schedule(){
 function normalize(){
   if(!p.scenes.some(s=>s.id===levelId))levelId=p.start;
   if(!current())selected=null;
+  marked=new Set([...marked].filter(key=>level().objects.some(o=>o.id===key)));
 }
 function change(mutate,rebuild=true){
   const before=clone(p);
@@ -131,7 +133,7 @@ function teardown(){
   clearInterval(statsTimer);
 }
 function openEditor(q){
-  teardown();p=clone(q);levelId=p.start;selected=null;activePanel='scene';tool='select';undo=[];redo=[];
+  teardown();marked.clear();p=clone(q);levelId=p.start;selected=null;activePanel='scene';tool='select';undo=[];redo=[];
   viewport=el('section',{className:'viewport','aria-label':'3D sahne'});
   panel=el('aside',{className:'panel'});
   toolbar=el('div',{className:'toolbar'});
@@ -151,16 +153,42 @@ function rebuildStage(restore=true){
   stage?.dispose();stage=null;
   viewport.replaceChildren();
   try{
-    stage=editorStage(viewport,p,level(),objectId=>{selected=objectId;activePanel='scene';refresh();},
+    stage=editorStage(viewport,p,level(),(objectId,extend)=>{
+      if(extend&&objectId){
+        if(marked.has(objectId))marked.delete(objectId);
+        else marked.add(objectId);
+        selected=marked.has(objectId)?objectId:[...marked].at(-1)??null;
+      }else{
+        selected=objectId;
+        marked=new Set(objectId?[objectId]:[]);
+      }
+      activePanel='scene';refresh();
+    },
       (objectId,transform)=>{
         if(!objectId){flash(transform+' yüklenemedi.',true);return;}
         const object=level().objects.find(o=>o.id===objectId);
         if(object&&JSON.stringify(transform)!==JSON.stringify({position:object.position,rotation:object.rotation,scale:object.scale})){
           if(!change(()=>Object.assign(object,transform),false))rebuildStage();
         }
+      },(position,mode)=>change(()=>{
+        const s=level(), finish=mode==='finish';
+        const item=makeObject('box',{name:finish?'Bitiş':'İnşa bloğu',position,body:finish?'sensor':'fixed',
+          ...(finish?{color:'#55ffbd',emissive:'#105d49',opacity:.75}:{})});
+        s.objects.push(item);
+        if(finish)s.scripts.push({id:id(),event:'trigger',source:item.id,steps:[
+          {op:'finish',args:{text:'Bölüm tamamlandı'}},
+        ]});
+        selected=item.id;marked=new Set([item.id]);
+      }),moves=>{
+        if(!change(()=>{
+          for(const [key,position] of moves){
+            const item=level().objects.find(o=>o.id===key);
+            item.position=position.map(n=>Math.round(n*10000)/10000);
+          }
+        },false))rebuildStage();
       });
     if(saved)stage.restore(saved);
-    stage.configure(selected,tool,space,snap,magnet);
+    stage.configure(selected,tool,space,snap,magnet,marked.size?[...marked]:selected?[selected]:[]);
   }catch(e){
     viewport.replaceChildren(el('div',{className:'scene-error',role:'alert'},
       muted('3D sahne açılamadı. '+e.message),button('Sahneyi yeniden aç',()=>rebuildStage(false))));
@@ -195,6 +223,7 @@ function refresh(){
   toolbar.replaceChildren(
     ...Object.entries({scene:'Sahne',blocks:'Bloklar',assets:'Assetler',settings:'Ayarlar',output:'Dışa aktar'}).map(([key,name])=>
       button(name,()=>{activePanel=key;refresh();},{'aria-pressed':String(activePanel===key)})),
+    button('İnşa',()=>{tool=['build','finish'].includes(tool)?'select':'build';activePanel='scene';refresh();},{'aria-pressed':String(tool==='build'||tool==='finish')}),
     button('Sürükle',()=>{tool=tool==='drag'?'select':'drag';refresh();},{'aria-pressed':String(tool==='drag')}),
     button('Mıknatıs',()=>{magnet=!magnet;refresh();},{'aria-pressed':String(magnet)}),
     button('Tam ekran',()=>{
@@ -204,7 +233,36 @@ function refresh(){
   );
   if(viewport.parentElement.classList.contains('full'))toolbar.lastChild.textContent='Paneli aç';
   renderPanel();
-  stage?.configure(selected,tool,space,snap,magnet);
+  renderSceneActions();
+  stage?.configure(selected,tool,space,snap,magnet,marked.size?[...marked]:selected?[selected]:[]);
+}
+function renderSceneActions(){
+  sceneActions?.remove();
+  const s=level(), keys=new Set(marked.size?marked:selected?[selected]:[]);
+  const items=s.objects.filter(o=>keys.has(o.id));
+  if(!items.length&&!['build','finish','multi'].includes(tool))return;
+  sceneActions=el('div',{className:'scene-actions','aria-label':'Sahne araçları'});
+  const modeButton=(label,mode)=>button(label,()=>{tool=tool===mode?'select':mode;refresh();},{'aria-pressed':String(tool===mode)});
+  sceneActions.append(modeButton('Blok', 'build'),modeButton('Bitiş', 'finish'),modeButton('Çoklu seç','multi'));
+  if(items.length){
+    sceneActions.append(el('span',{},items.length+' seçili'),modeButton('Taşı','drag'),
+      button('90° döndür',()=>change(()=>{for(const o of items)o.rotation[1]=(o.rotation[1]+90)%360;})),
+      button('Kopyala',()=>change(()=>{
+        const ids=new Map(items.map(o=>[o.id,id()]));
+        const copies=items.map(o=>({...clone(o),id:ids.get(o.id),parent:ids.get(o.parent)??o.parent,
+          name:(o.name+' Kopya').slice(0,80),position:ids.has(o.parent)?[...o.position]:[o.position[0]+1,o.position[1],o.position[2]]}));
+        s.objects.push(...copies);marked=new Set(ids.values());selected=copies[0].id;
+      })),
+      button('Kaldır',()=>change(()=>{
+        s.objects=s.objects.filter(o=>!keys.has(o.id));
+        for(const o of s.objects)if(keys.has(o.parent))o.parent=null;
+        s.scripts=s.scripts.filter(script=>!keys.has(script.source));
+        for(const script of s.scripts)script.steps=script.steps.filter(block=>!keys.has(block.args.target));
+        if(keys.has(s.player))s.player=null;
+        selected=null;marked.clear();
+      })));
+  }
+  viewport.append(sceneActions);
 }
 function vector(title,value,changeValue,min,max){
   return el('fieldset',{className:'vectors'},el('legend',{},title),...['X','Y','Z'].map((axis,index)=>label(axis,
@@ -222,14 +280,14 @@ function renderScene(){
   for(const item of s.objects){
     let depth=0,parent=item.parent;
     while(parent){depth++;parent=s.objects.find(q=>q.id===parent)?.parent;}
-    hierarchy.append(button(item.name||item.kind,()=>{selected=item.id;refresh();},
+    hierarchy.append(button(item.name||item.kind,()=>{selected=item.id;marked=new Set([item.id]);refresh();},
       {'aria-pressed':String(item.id===selected),style:'padding-inline-start:'+Math.min(8,depth)*10+'px'}));
   }
   const modelSelect=dropdown([['','Model ekle'],...assetChoices('model')],'',value=>{
     if(value)change(()=>{const item=makeObject('model',{asset:value,name:p.assets.find(a=>a.id===value).name.slice(0,80)});s.objects.push(item);selected=item.id;});
   });
   panel.append(title('Sahne',metrics),
-    row(dropdown(p.scenes.map(q=>[q.id,q.name]),s.id,value=>{levelId=value;selected=null;rebuildStage(false);refresh();}),
+    row(dropdown(p.scenes.map(q=>[q.id,q.name]),s.id,value=>{levelId=value;selected=null;marked.clear();rebuildStage(false);refresh();}),
       button('+ Sahne',()=>change(()=>{const q=makeScene('Sahne '+(p.scenes.length+1));p.scenes.push(q);levelId=q.id;selected=null;}))),
     row(...Object.entries(itemTypes).map(([kind,name])=>button('+ '+name,()=>addObject(kind)))),
     ...(assetChoices('model').length?[modelSelect]:[]),
