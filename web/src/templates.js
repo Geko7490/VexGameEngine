@@ -25,7 +25,7 @@ export function createTemplate(name,type){
   }
   if(type==='collect'){
     for(let i=0;i<5;i++){
-      const crystal=obj('sphere',{name:'Kristal '+(i+1),position:[i%2?4:-4,.6,-i*2.8],scale:[.8,.8,.8],color:'#70ffd9',body:'sensor'});
+      const crystal=obj('sphere',{name:'Kristal '+(i+1),position:[i%2?4:-4,.6,0-i*2.8],scale:[.8,.8,.8],color:'#70ffd9',body:'sensor'});
       s.objects.push(crystal);
       s.scripts.push(event('trigger',crystal.id,block('score',{amount:10}),block('destroy',{target:'$self'}),
         block('add',{name:'crystals',amount:1}),block('branch',{name:'crystals',amount:4}),block('finish',{text:'Bütün kristaller toplandı'})));

@@ -1,4 +1,4 @@
-import RAPIER from '@dimforge/rapier3d-compat';
+import RAPIER from '@dimforge/rapier3d-compat/rapier.es.js';
 import {Quaternion,Euler} from 'three';
 export const fixedStep=1/60;
 let initialization;
