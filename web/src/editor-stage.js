@@ -1,6 +1,7 @@
-import {Raycaster,Vector2,Vector3} from 'three';
+import {Plane,Raycaster,Vector2,Vector3} from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {TransformControls} from 'three/addons/controls/TransformControls.js';
+import {snapBlock} from './block-snap.js';
 import {Stage} from './stage.js';
 
 export function editorStage(host,project,scene,onSelect,onTransform){
@@ -15,8 +16,8 @@ export function editorStage(host,project,scene,onSelect,onTransform){
   world.add(gizmo.getHelper());
   let manipulated=false, pointer=null, handle=null;
   gizmo.addEventListener('dragging-changed',e=>{orbit.enabled=!e.value;if(e.value)manipulated=true;});
-  gizmo.addEventListener('mouseUp',()=>{
-    const root=gizmo.object;
+  let mode='select', grid=false, magnet=true, direct=null;
+  function commit(root){
     if(!root)return;
     const r=x=>Math.round(x*10000)/10000;
     onTransform(root.userData.object,{
@@ -24,6 +25,10 @@ export function editorStage(host,project,scene,onSelect,onTransform){
       rotation:root.rotation.toArray().slice(0,3).map(x=>r(x*180/Math.PI)),
       scale:root.scale.toArray().map(x=>r(Math.max(.025,Math.min(500,x)))),
     });
+  }
+  gizmo.addEventListener('mouseUp',()=>{
+    if(mode==='translate'&&gizmo.object)applyMagnet(gizmo.object);
+    commit(gizmo.object);
   });
   const ray=new Raycaster(), coords=new Vector2(), lifecycle=new AbortController();
   const on=(name,fn)=>canvas.addEventListener(name,fn,{signal:lifecycle.signal});
@@ -37,15 +42,76 @@ export function editorStage(host,project,scene,onSelect,onTransform){
   on('pointerup',e=>{
     const start=pointer;pointer=null;
     if(!start||start.id!==e.pointerId||manipulated||Math.hypot(e.clientX-start.x,e.clientY-start.y)>8)return;
+    onSelect(pick(e)?.userData.object??null);
+  });
+  function rayAt(e){
     const rect=canvas.getBoundingClientRect();
     coords.set(2*(e.clientX-rect.left)/rect.width-1,1-2*(e.clientY-rect.top)/rect.height);
     ray.setFromCamera(coords,camera);
+  }
+  function pick(e){
+    rayAt(e);
     const roots=Array.from(entries.values()).filter(entry=>!entry.o.parent).map(entry=>entry.root);
-    const first=ray.intersectObjects(roots,true)[0];
-    let root=first?.object;
+    let root=ray.intersectObjects(roots,true)[0]?.object;
     while(root&&!root.userData.object)root=root.parent;
-    onSelect(root?.userData.object??null);
+    return root;
+  }
+  function applyMagnet(root){
+    if(!magnet||entries.get(root.userData.object)?.o.kind!=='box')return;
+    const related=(a,b)=>{for(let item=a;item;item=item.parent)if(item===b)return true;return false;};
+    const neighbors=Array.from(entries.values()).filter(e=>e.o.kind==='box'&&e.root.visible&&
+      !related(root,e.root)&&!related(e.root,root)).map(e=>e.root);
+    snapBlock(root,neighbors);
+  }
+  function capture(name,fn){canvas.addEventListener(name,fn,{capture:true,signal:lifecycle.signal});}
+  capture('pointerdown',e=>{
+    if(direct){e.stopImmediatePropagation();return;}
+    if(mode!=='drag'||!e.isPrimary||e.button!==0)return;
+    const root=pick(e);
+    if(!root)return;
+    const origin=root.getWorldPosition(new Vector3());
+    const normal=new Vector3(0,1,0);
+    // When the camera is nearly level, use a camera-facing plane for fine placement.
+    if(Math.abs(ray.ray.direction.dot(normal))<.12)camera.getWorldDirection(normal);
+    const plane=new Plane().setFromNormalAndCoplanarPoint(normal,origin);
+    const hit=ray.ray.intersectPlane(plane,new Vector3());
+    if(!hit)return;
+    e.stopImmediatePropagation();
+    orbit.enabled=false;
+    canvas.setPointerCapture(e.pointerId);
+    direct={root,origin,original:root.position.clone(),plane,hit,id:e.pointerId,x:e.clientX,y:e.clientY,moved:false};
+    onSelect(root.userData.object);
   });
+  capture('pointermove',e=>{
+    if(!direct||direct.id!==e.pointerId)return;
+    e.stopImmediatePropagation();
+    if(!direct.moved&&Math.hypot(e.clientX-direct.x,e.clientY-direct.y)<5)return;
+    rayAt(e);
+    const hit=ray.ray.intersectPlane(direct.plane,new Vector3());
+    if(!hit)return;
+    direct.moved=true;
+    const position=hit.sub(direct.hit).add(direct.origin);
+    if(grid){
+      position.x=Math.round(position.x*4)/4;
+      position.z=Math.round(position.z*4)/4;
+      if(direct.plane.normal.y!==1)position.y=Math.round(position.y*4)/4;
+    }
+    const root=direct.root;
+    root.position.copy(root.parent.worldToLocal(position));
+    applyMagnet(root);
+  });
+  function endDrag(e,cancel){
+    if(!direct||direct.id!==e.pointerId)return;
+    e.stopImmediatePropagation();
+    const {root,original,moved}=direct;
+    direct=null;
+    orbit.enabled=true;
+    if(cancel)root.position.copy(original);
+    else if(moved)commit(root);
+  }
+  capture('pointerup',e=>endDrag(e,false));
+  capture('pointercancel',e=>endDrag(e,true));
+  capture('lostpointercapture',e=>endDrag(e,true));
   let fps=0, frames=0, sampled=performance.now();
   function loop(now){
     handle=requestAnimationFrame(loop);
@@ -58,10 +124,11 @@ export function editorStage(host,project,scene,onSelect,onTransform){
   }
   loop();
   return {
-    configure(id,tool,space,snap){
+    configure(id,tool,space,snap,faces){
+      mode=tool;grid=snap;magnet=faces;
       const root=entries.get(id)?.root;
-      if(root&&tool!=='select')gizmo.attach(root);else gizmo.detach();
-      if(tool!=='select')gizmo.setMode(tool);
+      if(root&&['translate','rotate','scale'].includes(tool))gizmo.attach(root);else gizmo.detach();
+      if(['translate','rotate','scale'].includes(tool))gizmo.setMode(tool);
       gizmo.setSpace(space);
       gizmo.setTranslationSnap(snap ? .25 : null);
       gizmo.setRotationSnap(snap?Math.PI/12:null);

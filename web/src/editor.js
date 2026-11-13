@@ -10,7 +10,7 @@ import {el,button} from './dom.js';
 
 const root=document.querySelector('#app'), notice=document.querySelector('#notice');
 let renderedGallery=0;
-let p=null, levelId=null, selected=null, activePanel='scene', tool='select', space='world', snap=false;
+let p=null, levelId=null, selected=null, activePanel='scene', tool='select', space='world', snap=false, magnet=true;
 let undo=[],redo=[], saveTimer, saveQueue=Promise.resolve(), saveVersion=0;
 let stage=null,stopGame=null, viewport=null,panel=null,toolbar=null,header=null,metrics=null, statsTimer=null;
 let galleryMode='projects', session=0, toastTimer;
@@ -160,7 +160,7 @@ function rebuildStage(restore=true){
         }
       });
     if(saved)stage.restore(saved);
-    stage.configure(selected,tool,space,snap);
+    stage.configure(selected,tool,space,snap,magnet);
   }catch(e){
     viewport.replaceChildren(el('div',{className:'scene-error',role:'alert'},
       muted('3D sahne açılamadı. '+e.message),button('Sahneyi yeniden aç',()=>rebuildStage(false))));
@@ -195,6 +195,8 @@ function refresh(){
   toolbar.replaceChildren(
     ...Object.entries({scene:'Sahne',blocks:'Bloklar',assets:'Assetler',settings:'Ayarlar',output:'Dışa aktar'}).map(([key,name])=>
       button(name,()=>{activePanel=key;refresh();},{'aria-pressed':String(activePanel===key)})),
+    button('Sürükle',()=>{tool=tool==='drag'?'select':'drag';refresh();},{'aria-pressed':String(tool==='drag')}),
+    button('Mıknatıs',()=>{magnet=!magnet;refresh();},{'aria-pressed':String(magnet)}),
     button('Tam ekran',()=>{
       const full=viewport.parentElement.classList.toggle('full');
       toolbar.lastChild.textContent=full?'Paneli aç':'Tam ekran';
@@ -202,7 +204,7 @@ function refresh(){
   );
   if(viewport.parentElement.classList.contains('full'))toolbar.lastChild.textContent='Paneli aç';
   renderPanel();
-  stage?.configure(selected,tool,space,snap);
+  stage?.configure(selected,tool,space,snap,magnet);
 }
 function vector(title,value,changeValue,min,max){
   return el('fieldset',{className:'vectors'},el('legend',{},title),...['X','Y','Z'].map((axis,index)=>label(axis,
@@ -231,7 +233,7 @@ function renderScene(){
       button('+ Sahne',()=>change(()=>{const q=makeScene('Sahne '+(p.scenes.length+1));p.scenes.push(q);levelId=q.id;selected=null;}))),
     row(...Object.entries(itemTypes).map(([kind,name])=>button('+ '+name,()=>addObject(kind)))),
     ...(assetChoices('model').length?[modelSelect]:[]),
-    row(options({select:'Seç',translate:'Taşı',rotate:'Döndür',scale:'Ölçek'},tool,value=>{tool=value;refresh();}),
+    row(options({select:'Seç',drag:'Elle sürükle',translate:'Eksenle taşı',rotate:'Döndür',scale:'Ölçek'},tool,value=>{tool=value;refresh();}),
       options({world:'Dünya',local:'Yerel'},space,value=>{space=value;refresh();}),
       label('Izgara',check(snap,value=>{snap=value;refresh();}))),
     row(dropdown([['','Kamera'],['orbit','Orbit'],['top','Üst'],['front','Ön'],['back','Arka'],['side','Yan'],['focus','Odaklan']],'',
