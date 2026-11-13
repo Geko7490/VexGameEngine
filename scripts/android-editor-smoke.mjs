@@ -1,17 +1,62 @@
 import assert from 'node:assert/strict';
-import {chromium} from 'playwright';
 
-const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
+const endpoint = 'http://127.0.0.1:9222/json/list';
+const response = await fetch(endpoint, {signal: AbortSignal.timeout(8000)});
+assert.ok(response.ok, 'WebView debugging endpoint was not available.');
+const page = (await response.json()).find(tab => tab.url.endsWith('/assets/editor.html'));
+assert.ok(page?.webSocketDebuggerUrl, 'Android editor tab was not available.');
+
+const socket = new WebSocket(page.webSocketDebuggerUrl);
+const requests = new Map();
+let sequence = 0;
+socket.addEventListener('message', event => {
+  const message = JSON.parse(event.data);
+  requests.get(message.id)?.(message);
+});
 try {
-  const page = browser.contexts().flatMap(context => context.pages())
-    .find(tab => tab.url().endsWith('/assets/editor.html'));
-  assert.ok(page, 'Android editor tab was not available.');
-  page.setDefaultTimeout(12000);
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('WebView debugger did not connect.')), 8000);
+    socket.addEventListener('open', () => {clearTimeout(timer);resolve();}, {once:true});
+    socket.addEventListener('error', () => {clearTimeout(timer);reject(new Error('WebView debugger connection failed.'));}, {once:true});
+  });
 
-  const visible = label => page.getByRole('button', {name: label, exact: true});
-  await visible('Örnek oyunu aç').click();
-  await visible('+ Küp').waitFor();
-  const layout = await page.evaluate(() => {
+  async function inspect(fn, arg) {
+    const id = ++sequence;
+    const expression = '('+fn.toString()+')('+JSON.stringify(arg ?? null)+')';
+    const message = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        requests.delete(id);
+        reject(new Error('WebView did not respond to Runtime.evaluate.'));
+      }, 4000);
+      requests.set(id, result => {clearTimeout(timer);requests.delete(id);resolve(result);});
+      socket.send(JSON.stringify({id,method:'Runtime.evaluate',params:{expression,returnByValue:true}}));
+    });
+    assert.ok(!message.error && !message.result?.exceptionDetails, JSON.stringify(message));
+    return message.result.result.value;
+  }
+
+  async function waitFor(fn, arg, description) {
+    const stop = Date.now() + 15000;
+    let value;
+    do {
+      value = await inspect(fn,arg);
+      if (value) return value;
+      await new Promise(resolve => setTimeout(resolve,250));
+    } while (Date.now() < stop);
+    const state = await inspect(() => document.querySelector('#app')?.innerText.slice(0,750));
+    assert.fail(description+' did not appear. WebView text: '+state);
+  }
+
+  const useButton = (label, click = false) => waitFor(([name, tap]) => {
+    const button = Array.from(document.querySelectorAll('button'))
+      .find(node => node.textContent.trim() === name && !node.disabled && node.getBoundingClientRect().height > 0);
+    if (tap) button?.click();
+    return Boolean(button);
+  }, [label,click],label);
+
+  await useButton('Örnek oyunu aç', true);
+  await useButton('+ Küp');
+  const layout = await inspect(() => {
     const viewport = document.querySelector('.viewport').getBoundingClientRect();
     const panel = document.querySelector('.panel').getBoundingClientRect();
     const canvas = document.querySelector('.viewport canvas');
@@ -24,17 +69,17 @@ try {
   });
   assert.ok(layout.viewportHeight > 100 && layout.panelHeight > 120, JSON.stringify(layout));
   assert.ok(layout.canvasWidth > 100, JSON.stringify(layout));
-  await visible('+ Küp').click();
-  await visible('Küp').waitFor();
-  await visible('Bloklar').click();
-  await visible('+ Olay').waitFor();
-  await visible('Dışa aktar').click();
-  await visible('HTML5 oyun ZIP’i').waitFor();
-  await visible('▶ Test').click();
-  await page.locator('.game-status').waitFor();
-  await visible('Testi durdur').click();
-  await visible('HTML5 oyun ZIP’i').waitFor();
+  await useButton('+ Küp', true);
+  await useButton('Küp');
+  await useButton('Bloklar', true);
+  await useButton('+ Olay');
+  await useButton('Dışa aktar', true);
+  await useButton('HTML5 oyun ZIP’i');
+  await useButton('▶ Test', true);
+  await waitFor(() => Boolean(document.querySelector('.game-status')?.getBoundingClientRect().height),null,'Playtest status');
+  await useButton('Testi durdur', true);
+  await useButton('HTML5 oyun ZIP’i');
   console.log('Android offline editor: 3D canvas, scene tools, block editor, export panel and playtest passed.');
 } finally {
-  await browser.close();
+  socket.close();
 }
