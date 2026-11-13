@@ -56,19 +56,21 @@ try {
 
   await useButton('Örnek oyunu aç', true);
   await useButton('+ Küp');
+  await waitFor(() => (document.querySelector('.viewport canvas')?.width ?? 0) > 100, null, '3D canvas');
   const layout = await inspect(() => {
     const viewport = document.querySelector('.viewport').getBoundingClientRect();
     const panel = document.querySelector('.panel').getBoundingClientRect();
     const canvas = document.querySelector('.viewport canvas');
     return {
       viewportHeight: viewport.height,
+      viewportWidth: viewport.width,
       panelHeight: panel.height,
       canvasWidth: canvas?.width ?? 0,
       sceneError: document.querySelector('.scene-error')?.textContent,
     };
   });
   assert.ok(layout.viewportHeight > 100 && layout.panelHeight > 120, JSON.stringify(layout));
-  assert.ok(layout.canvasWidth > 100, JSON.stringify(layout));
+  assert.ok(layout.viewportWidth > 100 && layout.canvasWidth > 100, JSON.stringify(layout));
   await useButton('+ Küp', true);
   await useButton('Küp');
   await useButton('Bloklar', true);

@@ -8,6 +8,8 @@ adb shell cmd connectivity airplane-mode enable
 adb shell svc wifi disable
 adb shell input keyevent KEYCODE_WAKEUP
 adb shell wm dismiss-keyguard
+adb shell settings put system accelerometer_rotation 0
+adb shell settings put system user_rotation 0
 adb shell am start -W -n "$package/.MainActivity"
 
 for attempt in {1..10}; do
