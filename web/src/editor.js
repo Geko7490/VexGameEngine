@@ -59,7 +59,28 @@ function nameDialog(initial,heading){
     document.body.append(dialog);dialog.showModal();input.focus();input.select();
   });
 }
+let nativePickerOpen=false;
 function filePick(accept,handle){
+  if(window.VexImport){
+    if(nativePickerOpen)return;
+    nativePickerOpen=true;
+    window.VexImport.onmessage=event=>{
+      window.VexImport.onmessage=null;
+      nativePickerOpen=false;
+      run(async()=>{
+        const picked=JSON.parse(event.data);
+        if(picked.error)throw new Error(picked.error);
+        if(!picked.path)return;
+        if(!/^[a-f0-9-]{36}$/.test(picked.path))throw new Error('Geçersiz dosya seçimi.');
+        const response=await fetch('/picked/'+picked.path,{cache:'no-store'});
+        if(!response.ok)throw new Error('Seçilen dosya okunamadı.');
+        await handle(new File([await response.blob()],picked.name));
+      })();
+    };
+    try{window.VexImport.postMessage('pick');}
+    catch(error){nativePickerOpen=false;window.VexImport.onmessage=null;flash(error.message,true);}
+    return;
+  }
   const file=el('input',{type:'file',accept,hidden:true,onchange:async()=>{
     const picked=file.files?.[0];file.remove();
     if(picked)await run(()=>handle(picked))();

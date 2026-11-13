@@ -5,8 +5,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.util.Base64
-import android.webkit.ValueCallback
-import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -28,10 +26,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.lifecycleScope
+import androidx.webkit.JavaScriptReplyProxy
 import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -41,14 +43,53 @@ class MainActivity : ComponentActivity() {
     private data class Export(val name: String, val base64: String)
 
     private var web: WebView? = null
-    private var pickerCallback: ValueCallback<Array<Uri>>? = null
+    private var importReply: JavaScriptReplyProxy? = null
+    private val selectedFiles = ConcurrentHashMap<String, ByteArray>()
     private var pendingExport: Export? = null
     private var exportInProgress = false
 
     private val picker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val reply = importReply ?: return@registerForActivityResult
         val uri = result.data?.data?.takeIf { result.resultCode == RESULT_OK && it.scheme == "content" }
-        pickerCallback?.onReceiveValue(uri?.let { arrayOf(it) })
-        pickerCallback = null
+        if (uri == null) {
+            importReply = null
+            reply.postMessage("{}")
+            return@registerForActivityResult
+        }
+        lifecycleScope.launch {
+            var token: String? = null
+            try {
+                val picked = withContext(Dispatchers.IO) {
+                    val name = contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),
+                        null, null, null)?.use { if (it.moveToFirst()) it.getString(0) else null }
+                        ?: throw IllegalArgumentException("Dosya adı okunamadı.")
+                    val bytes = ByteArrayOutputStream()
+                    checkNotNull(contentResolver.openInputStream(uri)).use { input ->
+                        val buffer = ByteArray(64 * 1024)
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            if (bytes.size() + count > MAX_IMPORT_BYTES) {
+                                throw IllegalArgumentException("Dosya çok büyük.")
+                            }
+                            bytes.write(buffer, 0, count)
+                        }
+                    }
+                    name.takeLast(180) to bytes.toByteArray()
+                }
+                val path = UUID.randomUUID().toString()
+                token = path
+                selectedFiles.clear()
+                selectedFiles[path] = picked.second
+                reply.postMessage(JSONObject().put("name", picked.first).put("path", path).toString())
+            } catch (error: Exception) {
+                token?.let { selectedFiles.remove(it) }
+                if (error is kotlinx.coroutines.CancellationException) throw error
+                runCatching { reply.postMessage(JSONObject().put("error", "Dosya okunamadı veya çok büyük.").toString()) }
+            } finally {
+                importReply = null
+            }
+        }
     }
 
     private val exporter = registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
@@ -116,40 +157,45 @@ class MainActivity : ComponentActivity() {
                 override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
                     val uri = request.url
                     if (uri.scheme in setOf("data", "blob")) return null
+                    val path = uri.encodedPath.orEmpty()
+                    if (uri.scheme == "https" && uri.host == "appassets.androidplatform.net" &&
+                        request.method == "GET" && path.startsWith("/picked/")) {
+                        val bytes = selectedFiles.remove(path.removePrefix("/picked/"))
+                        if (bytes != null) return WebResourceResponse(
+                            "application/octet-stream", null, 200, "OK",
+                            mapOf("Cache-Control" to "no-store"), ByteArrayInputStream(bytes)
+                        )
+                    }
                     return assets.shouldInterceptRequest(uri) ?: WebResourceResponse(
                         "text/plain", "UTF-8", 403, "Blocked", emptyMap(), ByteArrayInputStream(byteArrayOf())
                     )
                 }
             }
-            webChromeClient = object : WebChromeClient() {
-                override fun onShowFileChooser(
-                    view: WebView,
-                    callback: ValueCallback<Array<Uri>>,
-                    params: FileChooserParams
-                ): Boolean {
-                    if (view.url != ENTRY) return false
-                    pickerCallback?.onReceiveValue(null)
-                    pickerCallback = callback
-                    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                        type = "*/*"
-                        addCategory(Intent.CATEGORY_OPENABLE)
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    }
-                    try {
-                        picker.launch(intent)
-                    } catch (_: Exception) {
-                        callback.onReceiveValue(null)
-                        pickerCallback = null
-                    }
-                    return true
-                }
-            }
             if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+                WebViewCompat.addWebMessageListener(this, "VexImport", setOf(ORIGIN)) { view, _, _, isMainFrame, reply ->
+                    if (isMainFrame && view.url == ENTRY) requestImport(reply)
+                }
                 WebViewCompat.addWebMessageListener(this, "VexFiles", setOf(ORIGIN)) { view, message, _, isMainFrame, _ ->
                     if (isMainFrame && view.url == ENTRY) requestExport(message.data)
                 }
             }
             loadUrl(ENTRY)
+        }
+    }
+
+    private fun requestImport(reply: JavaScriptReplyProxy) {
+        if (importReply != null) return
+        importReply = reply
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            type = "*/*"
+            addCategory(Intent.CATEGORY_OPENABLE)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        try {
+            picker.launch(intent)
+        } catch (_: Exception) {
+            importReply = null
+            reply.postMessage(JSONObject().put("error", "Dosya seçici açılamadı.").toString())
         }
     }
 
@@ -188,8 +234,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        pickerCallback?.onReceiveValue(null)
-        pickerCallback = null
+        importReply = null
+        selectedFiles.clear()
         web?.let {
             (it.parent as? android.view.ViewGroup)?.removeView(it)
             it.destroy()
@@ -201,6 +247,7 @@ class MainActivity : ComponentActivity() {
     private companion object {
         const val ORIGIN = "https://appassets.androidplatform.net"
         const val ENTRY = "$ORIGIN/assets/editor.html"
+        const val MAX_IMPORT_BYTES = 8 * 1024 * 1024 + 1024
         const val MAX_ZIP_BYTES = 16 * 1024 * 1024
     }
 }
