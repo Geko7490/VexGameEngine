@@ -1,3 +1,5 @@
+import {compileGraph} from './graph.js';
+import {actions,events} from './project.js';
 import {Vector2,Vector3,Euler,Quaternion} from 'three';
 import {clone,validate} from './project.js';
 import {Stage} from './stage.js';
@@ -134,7 +136,8 @@ export async function startGame(host,source,{preview=false,storage}={}){
     ended=false;pending=null;jumpQueued=false;yaw=0;pitch=.22;carAngle=0;verticalSpeed=0;
     stage=new Stage(host,project,level,{assetError:name=>{message.textContent=name+' yüklenemedi.';}});
     physics=new Physics(level);
-    machine=new BlockMachine(level.scripts,{apply,variable:name=>variables.get(name)??0});
+    machine=new BlockMachine(level.graph?compileGraph(level.graph,actions,events):level.scripts,{apply,variable:name=>variables.get(name)??0,
+      position:id=>stage.entries.get(id)?.root.getWorldPosition(new Vector3()).toArray()});
     machine.emit('start',level.player);
     input=inputFor(host,level.ui,event=>{
       if(ended)return;

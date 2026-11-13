@@ -37,8 +37,13 @@ try{
   await page.getByRole('button',{name:'Geri al',exact:true}).click();
   await page.getByRole('button',{name:'İnşa bloğu',exact:true}).waitFor({state:'detached'});
   await page.getByRole('button',{name:'Bloklar',exact:true}).click();
-  await page.getByRole('button',{name:'+ Olay'}).click();
-  await page.locator('.script').last().locator('select').last().selectOption('score');
+  // Add an event and create a typed execution link through the smart pin tray.
+  await page.getByRole('button',{name:'+ Düğüm',exact:true}).click();
+  await page.getByRole('button',{name:'+ Olay',exact:true}).click();
+  await page.locator('.graph-event').last().getByRole('button',{name:'Devam · Akış',exact:true}).click();
+  await page.getByRole('button',{name:'+ Skor ekle · Akış',exact:true}).click();
+  await page.locator('.graph-wires .wire-exec').last().waitFor({state:'attached'});
+
   await page.getByRole('button',{name:'▶ Test'}).click();
   await page.getByText(/Skor 10/).waitFor({timeout:10000});
   await page.getByRole('button',{name:'Testi durdur'}).click();

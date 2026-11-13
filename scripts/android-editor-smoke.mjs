@@ -74,7 +74,7 @@ try {
   await useButton('+ Küp', true);
   await useButton('Küp');
   await useButton('Bloklar', true);
-  await useButton('+ Olay');
+  await useButton('+ Düğüm');
   await useButton('Dışa aktar', true);
   await useButton('HTML5 oyun ZIP’i');
   await useButton('▶ Test', true);

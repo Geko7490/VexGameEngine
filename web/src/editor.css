@@ -7,3 +7,22 @@ html,body,#app{height:100%;margin:0}body{--panel:#191a29;--surface:#222337;--lin
 
 .scene-actions{position:absolute;z-index:2;inset:auto 6px 6px;display:flex;align-items:center;gap:5px;overflow-x:auto;overscroll-behavior:contain;scrollbar-width:thin;padding:4px;background:#151529db;border-radius:9px}
 .scene-actions button,.scene-actions span{flex-shrink:0;white-space:nowrap}.scene-actions button{min-height:36px;padding:4px 9px}.scene-actions span{padding:0 4px;color:var(--muted)}
+.studio .work-area.graph-open{display:grid;grid-template: minmax(0,1fr) / minmax(0,1fr)}
+.work-area.graph-open .viewport{display:none}
+.studio .work-area.graph-open .panel{display:flex;min-width:0;min-height:0;padding:0;border:0}
+.graph-editor{display:grid;grid-template-rows:auto minmax(0,1fr);position:relative;flex:1;min-height:0;overflow:hidden}
+.graph-tools{display:flex;gap:6px;overflow:auto;padding:6px;background:#171827}
+.graph-tools button{white-space:nowrap}
+.graph-canvas{position:relative;min-height:0;overflow:hidden;touch-action:none;background-color:#131626;background-image:radial-gradient(#484969 1px,transparent 1px)}
+.graph-layer{position:absolute;inset:0;transform-origin:0 0}
+.graph-wires{position:absolute;width:100%;height:100%;overflow:visible;pointer-events:none}
+.graph-wires path{fill:none;stroke:#91c7ff;stroke-width:2.5}
+.graph-wires .wire-exec{stroke:#efedfc;stroke-width:3}
+.graph-node{position:absolute;width:236px;padding:8px;display:grid;gap:6px;background:#222439;border:1px solid #535674;border-radius:9px;box-shadow:0 6px 18px #0007}
+.graph-node-title{display:flex;gap:4px;align-items:center;justify-content:space-between;padding:3px 6px;background:#523d81;border-radius:5px;touch-action:none;user-select:none;cursor:grab}
+.graph-event .graph-node-title{background:#733548}.graph-data .graph-node-title{background:#235d58}
+.graph-node-title button{min-height:35px;padding-inline:9px}.graph-node .field{grid-template-columns:82px 1fr}.graph-pin{min-height:38px;text-align:left;color:var(--pin,#9bcaff);border-left:4px solid var(--pin,#9bcaff);font-size:13px}
+.graph-pin[data-type=exec]{--pin:#f4efff}.graph-pin[data-type=number]{--pin:#8ee7ad}.graph-pin[data-type=boolean]{--pin:#ff9194}.graph-pin[data-type=text]{--pin:#f6a3dd}.graph-pin[data-type=vector]{--pin:#ffcc81}
+.graph-wires .wire-number{stroke:#8ee7ad}.graph-wires .wire-boolean{stroke:#ff9194}.graph-wires .wire-text{stroke:#f6a3dd}.graph-wires .wire-vector{stroke:#ffcc81}
+.graph-tray{position:absolute;z-index:3;inset:auto 7px 7px;padding:8px;border:1px solid #595476;border-radius:9px;background:#202137;max-height:55%;overflow:auto}
+.graph-tray-head,.graph-choices{display:flex;gap:6px}.graph-choices{flex-wrap:wrap;margin-top:7px}.graph-tray-head{position:sticky;top:0;background:#202137}

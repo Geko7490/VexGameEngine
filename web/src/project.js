@@ -1,3 +1,4 @@
+import {validateGraph} from './graph.js';
 export const maxBytes = 8 * 1024 * 1024;
 export const id = () => globalThis.crypto?.randomUUID?.() ?? Array.from(crypto.getRandomValues(new Uint8Array(16)), n => n.toString(16).padStart(2,'0')).join('');
 export const clone = x => JSON.parse(JSON.stringify(x));
@@ -74,6 +75,12 @@ export function validate(project) {
       }
     }
     ensure(s.player===null || ['dynamic','kinematic'].includes(objects.get(s.player)?.body),'Oyuncuya fizik gövdesi gerekli.');
+    const valueOk=(t,x)=>{
+      const validators={object:()=>['$self','$other'].includes(x)||objects.has(x),scene:()=>scenes.has(x),audio:()=>assets.get(x)?.kind==='audio',
+        color:()=>color(x),key:()=>key(x),text:()=>str(x,300),number:()=>num(x,-100000,100000),vector:()=>vec(x,-10000,10000),boolean:()=>typeof x==='boolean'};
+      return validators[t]?.()??false;
+    };
+    if(s.graph!==undefined)validateGraph(s.graph,actions,events,valueOk,objects);
     for(const script of index(s.scripts).values()){
       ensure(Object.hasOwn(events,script.event) && (script.source===null ||
         (['collision','trigger'].includes(script.event) && objects.has(script.source))) && list(script.steps,120),'Geçersiz olay bloğu.');
@@ -81,9 +88,7 @@ export function validate(project) {
         ensure(b && Object.hasOwn(actions,b.op) && b.args,'Bilinmeyen eylem bloğu.');
         for(const [k,t] of Object.entries(actions[b.op][1])){
           const x=b.args[k];
-          const validators={object:()=>['$self','$other'].includes(x)||objects.has(x),scene:()=>scenes.has(x),audio:()=>assets.get(x)?.kind==='audio',
-            color:()=>color(x),key:()=>key(x),text:()=>str(x,300),number:()=>num(x,-100000,100000),vector:()=>vec(x,-10000,10000)};
-          ensure(validators[t](),actions[b.op][0]+' bloğunda geçersiz giriş.');
+          ensure(valueOk(t,x),actions[b.op][0]+' bloğunda geçersiz giriş.');
         }
       }
     }

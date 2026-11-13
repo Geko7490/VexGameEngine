@@ -1,3 +1,5 @@
+import {GraphEditor} from './graph-editor.js';
+import {signature,migrate} from './graph.js';
 import {actions,events,makeObject,makeScene,id,clone,encode,maxBytes} from './project.js';
 import {templates,createTemplate} from './templates.js';
 import {editorStage} from './editor-stage.js';
@@ -11,6 +13,7 @@ import {el,button} from './dom.js';
 const root=document.querySelector('#app'), notice=document.querySelector('#notice');
 let renderedGallery=0;
 let marked=new Set(), sceneActions;
+let graphUI=new GraphEditor();
 let p=null, levelId=null, selected=null, activePanel='scene', tool='select', space='world', snap=false, magnet=true;
 let undo=[],redo=[], saveTimer, saveQueue=Promise.resolve(), saveVersion=0;
 let stage=null,stopGame=null, viewport=null,panel=null,toolbar=null,header=null,metrics=null, statsTimer=null;
@@ -133,7 +136,7 @@ function teardown(){
   clearInterval(statsTimer);
 }
 function openEditor(q){
-  teardown();marked.clear();p=clone(q);levelId=p.start;selected=null;activePanel='scene';tool='select';undo=[];redo=[];
+  teardown();marked.clear();graphUI=new GraphEditor();p=clone(q);levelId=p.start;selected=null;activePanel='scene';tool='select';undo=[];redo=[];
   viewport=el('section',{className:'viewport','aria-label':'3D sahne'});
   panel=el('aside',{className:'panel'});
   toolbar=el('div',{className:'toolbar'});
@@ -175,9 +178,12 @@ function rebuildStage(restore=true){
         const item=makeObject('box',{name:finish?'Bitiş':'İnşa bloğu',position,body:finish?'sensor':'fixed',
           ...(finish?{color:'#55ffbd',emissive:'#105d49',opacity:.75}:{})});
         s.objects.push(item);
-        if(finish)s.scripts.push({id:id(),event:'trigger',source:item.id,steps:[
+        if(finish){const trigger={id:id(),event:'trigger',source:item.id,steps:[
           {op:'finish',args:{text:'Bölüm tamamlandı'}},
-        ]});
+        ]};
+          if(s.graph){const parts=migrate([trigger],trigger.id);s.graph.nodes.push(...parts.nodes);s.graph.edges.push(...parts.edges);}
+          else s.scripts.push(trigger);
+        }
         selected=item.id;marked=new Set([item.id]);
       }),moves=>{
         if(!change(()=>{
@@ -258,6 +264,7 @@ function renderSceneActions(){
         for(const o of s.objects)if(keys.has(o.parent))o.parent=null;
         s.scripts=s.scripts.filter(script=>!keys.has(script.source));
         for(const script of s.scripts)script.steps=script.steps.filter(block=>!keys.has(block.args.target));
+        removeGraphObjects(s,keys);
         if(keys.has(s.player))s.player=null;
         selected=null;marked.clear();
       })));
@@ -313,6 +320,7 @@ function renderScene(){
           for(const q of s.objects)if(q.parent===o.id)q.parent=null;
           s.scripts=s.scripts.filter(q=>q.source!==o.id);
           for(const script of s.scripts)script.steps=script.steps.filter(b=>b.args.target!==o.id);
+          removeGraphObjects(s,new Set([o.id]));
           if(s.player===o.id)s.player=null;
         });
       }),{className:'danger'})),
@@ -335,7 +343,7 @@ function renderScene(){
     label('Kütle',number(o.mass,v=>edit('mass',v,false),.01,10000)));
   if(['dynamic','kinematic'].includes(o.body))panel.append(label('Oyuncu',check(s.player===o.id,v=>change(()=>{s.player=v?o.id:null;},false))));
 }
-const fieldNames={target:'Obje',xyz:'X / Y / Z',color:'Renk',text:'Metin',asset:'Ses',amount:'Değer',name:'Değişken',scene:'Sahne'};
+const fieldNames={a:'A',b:'B',x:'X',y:'Y',z:'Z',value:'Değer',target:'Obje',xyz:'X / Y / Z',color:'Renk',text:'Metin',asset:'Ses',amount:'Değer',name:'Değişken',scene:'Sahne'};
 function blockField(type,key,value,changeValue){
   if(type==='vector')return vector(fieldNames[key],value,changeValue,-10000,10000);
   const controls={
@@ -350,6 +358,46 @@ function blockField(type,key,value,changeValue){
   return label(fieldNames[key],controls[type]());
 }
 function renderBlocks(){
+  const s=level();
+  if(!s.graph&&s.scripts.reduce((n,item)=>n+1+item.steps.length,0)>240){
+    renderLegacyBlocks();
+    return;
+  }
+  const graph=s.graph??migrate(s.scripts);
+  const edit=mutate=>change(()=>{s.graph=graph;mutate();},false);
+  const defaults={object:selected??'$self',vector:[0,0,0],color:'#a481ff',text:'',key:'sayi',number:0,
+    boolean:false,scene:p.start,audio:assetChoices('audio')[0]?.[0]};
+  panel.append(graphUI.render(graph,{actions,events,edit,
+    make(kind,at){
+      if(kind==='sound'&&!defaults.audio){flash('Önce bir ses dosyası ekle.',true);return null;}
+      const args=Object.fromEntries(Object.entries(signature(kind,actions).in).filter(([,type])=>type!=='exec').map(([key,type])=>[key,defaults[type]]));
+      if(kind==='score')args.amount=10;
+      if(kind==='wait')args.amount=1;
+      if(kind==='literal')args.value=0;
+      if(kind==='textValue')args.value='';
+      if(kind==='bool')args.value=false;
+      return {id:id(),kind,...at,args,...(kind==='event'?{event:'start',source:null}:{})};
+    },
+    field(type,key,value,update){
+      if(type==='boolean')return label('Değer',check(value,update));
+      return blockField(type,key,value,update);
+    },
+    eventField(n){
+      const fields=[options(events,n.event,value=>edit(()=>{n.event=value;n.source=null;}))];
+      if(['collision','trigger'].includes(n.event))fields.push(label('Olay objesi',dropdown([['','Her obje'],...s.objects.map(o=>[o.id,o.name])],
+        n.source,value=>edit(()=>{n.source=value||null;}))));
+      return fields;
+    },
+  }));
+}
+function removeGraphObjects(s,keys){
+  if(!s.graph)return;
+  for(const n of s.graph.nodes){
+    if(keys.has(n.source))n.source=null;
+    if(keys.has(n.args.target))n.args.target='$self';
+  }
+}
+function renderLegacyBlocks(){
   const s=level();
   panel.append(title('Görsel kod'),button('+ Olay',()=>change(()=>s.scripts.push({id:id(),event:'start',source:null,steps:[]}),false),{className:'primary'}));
   if(!s.scripts.length)panel.append(muted('Bir olay ekle ve çalıştıracağı blokları sırala.'));
@@ -440,7 +488,7 @@ function renderAssets(){
   }),{className:'primary'}));
   if(!p.assets.length)panel.append(muted('GLB, gömülü GLTF, PNG, JPEG, WebP, WAV, OGG ve MP3.'));
   for(const a of p.assets){
-    const used=p.scenes.some(s=>s.objects.some(o=>o.asset===a.id||o.texture===a.id)||s.scripts.some(script=>script.steps.some(b=>b.args.asset===a.id)));
+    const used=p.scenes.some(s=>s.objects.some(o=>o.asset===a.id||o.texture===a.id)||s.scripts.some(script=>script.steps.some(b=>b.args.asset===a.id))||s.graph?.nodes.some(n=>n.args.asset===a.id));
     const preview=a.kind==='image'?el('img',{src:a.data,alt:a.name,className:'asset-image'}):
       a.kind==='audio'?el('audio',{src:a.data,controls:'',preload:'none'}):null;
     panel.append(el('div',{className:'asset'},preview,label('Ad',text(a.name,v=>change(()=>{a.name=v.trim()||a.name;},false),140)),
@@ -466,6 +514,7 @@ function renderSettings(){
       p.scenes=p.scenes.filter(q=>q!==s);
       if(p.start===s.id)p.start=p.scenes[0].id;
       for(const q of p.scenes)for(const script of q.scripts)script.steps=script.steps.filter(b=>b.op!=='scene'||b.args.scene!==s.id);
+      for(const q of p.scenes)for(const n of q.graph?.nodes??[])if(n.args.scene===s.id)n.args.scene=p.start;
       levelId=p.start;selected=null;
     });
   }),{className:'danger'}));
@@ -473,6 +522,7 @@ function renderSettings(){
 function renderPanel(){
   const scroll=panel.scrollTop;
   panel.replaceChildren();
+  panel.parentElement.classList.toggle('graph-open',activePanel==='blocks');
   if(activePanel==='scene')renderScene();
   if(activePanel==='blocks')renderBlocks();
   if(activePanel==='assets')renderAssets();
